@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Part Verifier</title>
+<style>
+  :root{
+    --bg: #10141a;
+    --panel: #171d26;
+    --panel-2: #1f2732;
+    --line: #2b3542;
+    --text: #e7ecf2;
+    --text-dim: #8ea0b3;
+    --accent: #ffb454;
+    --good: #4fd18b;
+    --bad: #ef6a6a;
+    --warn: #ffb454;
+    --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    --sans: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+  *{ box-sizing: border-box; }
+  html,body{ margin:0; padding:0; background:var(--bg); color:var(--text); font-family:var(--sans); }
+  body{ min-height:100vh; padding-bottom: 90px; }
+  a{ color:var(--accent); }
+
+  header{
+    padding: 18px 16px 14px;
+    border-bottom: 1px solid var(--line);
+    position: sticky; top:0; background: var(--bg); z-index: 5;
+  }
+  header .brand{ display:flex; align-items:baseline; gap:10px; }
+  header .brand .mark{
+    font-family: var(--mono); font-size: 13px; color: var(--accent);
+    border: 1px solid var(--accent); padding: 2px 6px; border-radius: 3px; letter-spacing: 0.5px;
+  }
+  header h1{ font-size: 18px; margin:0; font-weight: 600; }
+  header p{ margin: 6px 0 0; color: var(--text-dim); font-size: 13px; line-height:1.5; }
+
+  .status-bar{
+    font-family: var(--mono); font-size: 12px; color: var(--text-dim);
+    padding: 8px 16px; border-bottom: 1px solid var(--line); display:flex; align-items:center; gap:8px;
+  }
+  .dot{ width:7px; height:7px; border-radius:50%; background: var(--text-dim); flex-shrink:0; }
+  .dot.ready{ background: var(--good); }
+  .dot.loading{ background: var(--accent); animation: pulse 1.2s infinite; }
+  @keyframes pulse{ 0%,100%{opacity:1;} 50%{opacity:0.35;} }
+
+  main{ max-width: 720px; margin: 0 auto; padding: 16px; }
+
+  .tabs{ display:flex; gap:6px; margin-bottom: 16px; }
+  .tab{
+    flex:1; text-align:center; padding: 10px 8px; border-radius: 8px;
+    border: 1px solid var(--line); background: var(--panel); color: var(--text-dim);
+    font-size: 13px; cursor:pointer; font-family: var(--sans); font-weight:500;
+  }
+  .tab.active{ background: var(--panel-2); color: var(--text); border-color: var(--accent); }
+
+  .view{ display:none; }
+  .view.active{ display:block; }
+
+  .card{
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 16px; margin-bottom: 14px;
+  }
+  .card h2{ font-size: 14px; margin: 0 0 10px; color: var(--text-dim); font-weight: 600; letter-spacing: 0.2px; }
+
+  video, canvas.frame{
+    width: 100%; border-radius: 8px; background: #000; display:block;
+    aspect-ratio: 4/3; object-fit: cover;
+  }
+  .cam-wrap{ position:relative; }
+  .cam-hint{
+    position:absolute; bottom:10px; left:10px; right:10px;
+    font-family: var(--mono); font-size: 11px; color: #cfe0ee; background: rgba(0,0,0,0.55);
+    padding: 6px 8px; border-radius: 6px; text-align:center;
+  }
+
+  button{
+    font-family: var(--sans); font-weight: 600; font-size: 14px; border-radius: 8px;
+    border: 1px solid transparent; padding: 12px 16px; cursor:pointer; width:100%;
+  }
+  .btn-primary{ background: var(--accent); color: #1a1206; }
+  .btn-primary:disabled{ background: #4a4132; color: #8a8370; cursor: not-allowed; }
+  .btn-secondary{ background: var(--panel-2); color: var(--text); border-color: var(--line); }
+  .btn-danger{ background: transparent; color: var(--bad); border-color: var(--bad); }
+  .btn-row{ display:flex; gap:8px; margin-top: 10px; }
+  .btn-row button{ width:auto; flex:1; }
+
+  label{ display:block; font-size: 12px; color: var(--text-dim); margin: 12px 0 6px; }
+  label:first-child{ margin-top:0; }
+  input[type=text], select{
+    width:100%; background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
+    padding: 10px 12px; border-radius: 8px; font-size: 14px; font-family: var(--sans);
+  }
+  input[type=file]{ display:none; }
+
+  .result{ text-align:center; padding: 6px 0; }
+  .result .part-no{ font-family: var(--mono); font-size: 28px; font-weight: 700; margin: 6px 0; }
+  .result .conf{ font-family: var(--mono); font-size: 13px; color: var(--text-dim); }
+  .badge{
+    display:inline-block; font-family: var(--mono); font-size: 12px; padding: 4px 10px;
+    border-radius: 20px; margin-top: 8px; letter-spacing: 0.3px;
+  }
+  .badge.good{ background: rgba(79,209,139,0.15); color: var(--good); border: 1px solid rgba(79,209,139,0.4); }
+  .badge.warn{ background: rgba(255,180,84,0.15); color: var(--warn); border: 1px solid rgba(255,180,84,0.4); }
+  .badge.bad{ background: rgba(239,106,106,0.15); color: var(--bad); border: 1px solid rgba(239,106,106,0.4); }
+
+  .match-list{ margin-top: 14px; border-top: 1px solid var(--line); padding-top: 10px; }
+  .match-row{
+    display:flex; align-items:center; gap: 10px; padding: 6px 0; font-size: 13px;
+  }
+  .match-row img{ width:36px; height:36px; border-radius:6px; object-fit:cover; flex-shrink:0; }
+  .match-row .mn{ flex:1; font-family: var(--mono); }
+  .match-row .mp{ color: var(--text-dim); font-family: var(--mono); font-size: 12px; }
+  .bar-track{ height:4px; background: var(--line); border-radius: 2px; overflow:hidden; margin-top:3px; }
+  .bar-fill{ height:100%; background: var(--accent); }
+
+  .ref-group{ border: 1px solid var(--line); border-radius: 8px; margin-bottom: 8px; overflow:hidden; }
+  .ref-group summary{
+    padding: 10px 12px; cursor:pointer; font-family: var(--mono); font-size: 13px;
+    display:flex; justify-content:space-between; align-items:center; background: var(--panel-2);
+  }
+  .ref-group summary .cnt{ color: var(--text-dim); font-size:12px; }
+  .ref-thumbs{ display:flex; gap:8px; flex-wrap:wrap; padding: 10px 12px; }
+  .thumb{ position:relative; width: 64px; }
+  .thumb img{ width:64px; height:64px; object-fit:cover; border-radius:6px; display:block; }
+  .thumb .lbl{ font-size:10px; color: var(--text-dim); text-align:center; margin-top:3px; font-family: var(--mono); }
+  .thumb .del{
+    position:absolute; top:-6px; right:-6px; width:18px; height:18px; border-radius:50%;
+    background: var(--bad); color:#fff; font-size:12px; line-height:18px; text-align:center; padding:0;
+    border:none; cursor:pointer;
+  }
+
+  .empty{ text-align:center; padding: 30px 10px; color: var(--text-dim); font-size: 13px; }
+
+  details.help{ border: 1px solid var(--line); border-radius: 8px; padding: 4px 12px; margin-top: 8px; }
+  details.help summary{ cursor:pointer; padding: 10px 0; font-size: 13px; color: var(--accent); font-weight:500; }
+  details.help .body{ font-size: 13px; color: var(--text-dim); line-height:1.6; padding-bottom: 12px; }
+  details.help .body p{ margin: 8px 0; }
+  details.help .body code{ background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-family: var(--mono); font-size:12px; }
+
+  .toast{
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
+    padding: 10px 16px; border-radius: 8px; font-size: 13px; box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+    opacity:0; pointer-events:none; transition: opacity 0.2s; z-index: 50;
+  }
+  .toast.show{ opacity:1; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand"><span class="mark">PV</span><h1>Part Verifier</h1></div>
+  <p>Scans a physical part against stored reference photos to check the part number and orientation. Visual check only — not a dimensional/tolerance measurement.</p>
+</header>
+
+<div class="status-bar">
+  <span class="dot loading" id="statusDot"></span>
+  <span id="statusText">Loading vision model (first time only, ~90&nbsp;MB)…</span>
+</div>
+
+<main>
+  <div class="tabs">
+    <div class="tab active" data-tab="scan">Scan</div>
+    <div class="tab" data-tab="manage">References</div>
+  </div>
+
+  <!-- SCAN VIEW -->
+  <div class="view active" id="view-scan">
+    <div class="card">
+      <h2>Camera</h2>
+      <div class="cam-wrap">
+        <video id="scanVideo" autoplay playsinline muted></video>
+        <div class="cam-hint">Center the part, fill the frame, avoid glare</div>
+      </div>
+      <div class="btn-row">
+        <button class="btn-primary" id="btnCapture" disabled>Capture &amp; Check</button>
+      </div>
+    </div>
+
+    <div class="card" id="resultCard" style="display:none;">
+      <h2>Result</h2>
+      <div class="result">
+        <img id="resultThumb" style="width:100%;max-width:220px;border-radius:8px;margin-bottom:8px;" />
+        <div class="part-no" id="resultPart">—</div>
+        <div class="conf" id="resultConf">—</div>
+        <div id="resultBadge"></div>
+      </div>
+      <div class="match-list" id="matchList"></div>
+    </div>
+  </div>
+
+  <!-- MANAGE VIEW -->
+  <div class="view" id="view-manage">
+    <div class="card">
+      <h2>Add reference photo</h2>
+      <div class="cam-wrap">
+        <video id="addVideo" autoplay playsinline muted></video>
+      </div>
+      <div class="btn-row">
+        <button class="btn-secondary" id="btnSnapAdd">Capture from camera</button>
+        <button class="btn-secondary" id="btnUpload">Upload photo</button>
+      </div>
+      <input type="file" id="fileInput" accept="image/*">
+
+      <div id="pendingWrap" style="display:none;">
+        <img id="pendingImg" style="width:100%;max-width:220px;border-radius:8px;margin-top:12px;display:block;">
+        <label>Part number</label>
+        <input type="text" id="partNoInput" placeholder="e.g. BB-4402-A">
+        <label>View / condition</label>
+        <select id="viewLabelInput">
+          <option value="iso">Iso view — correct</option>
+          <option value="front">Front view — correct</option>
+          <option value="side">Side view — correct</option>
+          <option value="top">Top view — correct</option>
+          <option value="wrong">Wrong orientation (reject example)</option>
+        </select>
+        <div class="btn-row">
+          <button class="btn-primary" id="btnSaveRef">Save reference</button>
+          <button class="btn-secondary" id="btnCancelRef">Discard</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Stored references (<span id="refCount">0</span>)</h2>
+      <div id="refListWrap"><div class="empty">No references yet. Add at least 2–3 photos per part above.</div></div>
+      <div class="btn-row">
+        <button class="btn-secondary" id="btnExport">Export library (.json)</button>
+        <button class="btn-secondary" id="btnImport">Import library (.json)</button>
+      </div>
+      <input type="file" id="importFile" accept="application/json">
+    </div>
+
+    <div class="card">
+      <h2>Guide</h2>
+      <details class="help">
+        <summary>I only have the 3D drawing, no physical part yet</summary>
+        <div class="body">
+          <p>Open the STEP/STL file in <code>FreeCAD</code> (free) or <code>Blender</code> (free). Rotate to the iso/front/side/top view you care about and export a screenshot or render as a PNG.</p>
+          <p>Upload those renders here the same way as a camera photo, labeled with the correct part number and view. They work as reference images the same as real photos — CLIP matching compares overall shape and features, not photo vs. render pixel-for-pixel.</p>
+        </div>
+      </details>
+      <details class="help">
+        <summary>How many reference photos do I need per part?</summary>
+        <div class="body">
+          <p>3–6 photos per part number, covering the angles a person is likely to photograph it from, works well. Add at least one "wrong orientation" example if that's a common real mistake on the line.</p>
+        </div>
+      </details>
+      <details class="help">
+        <summary>Backing up to OneDrive</summary>
+        <div class="body">
+          <p>Use <strong>Export library</strong> to download a single <code>.json</code> file containing all reference images and their fingerprints. Save that file into your OneDrive folder. On another phone/PC, open this same page and use <strong>Import library</strong> to load it back — no re-training needed.</p>
+        </div>
+      </details>
+      <details class="help">
+        <summary>Why can't this check exact dimensions?</summary>
+        <div class="body">
+          <p>A single photo has no reliable real-world scale or depth without a calibrated camera or a reference object in frame. This tool catches wrong parts, wrong orientation, and grossly wrong shapes — not sub-millimeter tolerance. For that, use calipers, a CMM, or a depth-camera 3D scan compared against the CAD model.</p>
+        </div>
+      </details>
+    </div>
+  </div>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script type="module">
+import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2';
+
+env.allowLocalModels = false;
+
+const DB_NAME = 'part-verifier-db';
+const STORE = 'refs';
+let db;
+
+function openDB(){
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, 1);
+    req.onupgradeneeded = () => {
+      const d = req.result;
+      if(!d.objectStoreNames.contains(STORE)){
+        d.createObjectStore(STORE, { keyPath: 'id', autoIncrement: true });
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function dbAll(){
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readonly');
+    const store = tx.objectStore(STORE);
+    const items = [];
+    store.openCursor().onsuccess = (e) => {
+      const cursor = e.target.result;
+      if(cursor){ items.push(cursor.value); cursor.continue(); }
+      else resolve(items);
+    };
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+function dbAdd(item){
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    const req = tx.objectStore(STORE).add(item);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function dbDelete(id){
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    const req = tx.objectStore(STORE).delete(id);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function dbClearAll(){
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    const req = tx.objectStore(STORE).clear();
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function dbAddBulk(items){
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    const store = tx.objectStore(STORE);
+    items.forEach(it => { const { id, ...rest } = it; store.add(rest); });
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+let extractor = null;
+
+function setStatus(text, mode){
+  document.getElementById('statusText').textContent = text;
+  const dot = document.getElementById('statusDot');
+  dot.className = 'dot' + (mode ? ' ' + mode : '');
+}
+
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+async function embedImage(imgEl){
+  const out = await extractor(imgEl, { pooling: 'mean', normalize: true });
+  return Array.from(out.data);
+}
+
+function cosineSim(a, b){
+  let dot = 0;
+  for(let i=0;i<a.length;i++) dot += a[i]*b[i];
+  return dot; // already normalized
+}
+
+function dataURLToImg(dataURL){
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.src = dataURL;
+  });
+}
+
+function canvasFromVideo(video, maxDim = 448){
+  const vw = video.videoWidth, vh = video.videoHeight;
+  const scale = Math.min(1, maxDim / Math.max(vw, vh));
+  const c = document.createElement('canvas');
+  c.width = Math.round(vw * scale);
+  c.height = Math.round(vh * scale);
+  const ctx = c.getContext('2d');
+  ctx.drawImage(video, 0, 0, c.width, c.height);
+  return c;
+}
+
+function fileToDataURL(file){
+  return new Promise((resolve) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.readAsDataURL(file);
+  });
+}
+
+async function resizeDataURL(dataURL, maxDim = 448){
+  const img = await dataURLToImg(dataURL);
+  const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+  const c = document.createElement('canvas');
+  c.width = Math.round(img.width * scale);
+  c.height = Math.round(img.height * scale);
+  c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+  return c.toDataURL('image/jpeg', 0.85);
+}
+
+// ---------- Camera setup ----------
+let scanStream = null, addStream = null;
+
+async function startCamera(videoEl){
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 960 } },
+    audio: false
+  });
+  videoEl.srcObject = stream;
+  return stream;
+}
+
+// ---------- Tabs ----------
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('view-' + tab.dataset.tab).classList.add('active');
+  });
+});
+
+// ---------- Scan flow ----------
+const scanVideo = document.getElementById('scanVideo');
+const btnCapture = document.getElementById('btnCapture');
+
+btnCapture.addEventListener('click', async () => {
+  btnCapture.disabled = true;
+  btnCapture.textContent = 'Checking…';
+  try{
+    const canvas = canvasFromVideo(scanVideo);
+    const dataURL = canvas.toDataURL('image/jpeg', 0.85);
+    const img = await dataURLToImg(dataURL);
+    const emb = await embedImage(img);
+    const refs = await dbAll();
+    showResult(dataURL, emb, refs);
+  } catch(err){
+    console.error(err);
+    toast('Could not process image: ' + err.message);
+  } finally {
+    btnCapture.disabled = false;
+    btnCapture.textContent = 'Capture & Check';
+  }
+});
+
+function showResult(dataURL, emb, refs){
+  const card = document.getElementById('resultCard');
+  card.style.display = 'block';
+  document.getElementById('resultThumb').src = dataURL;
+
+  if(refs.length === 0){
+    document.getElementById('resultPart').textContent = 'No references';
+    document.getElementById('resultConf').textContent = 'Add reference photos in the References tab first';
+    document.getElementById('resultBadge').innerHTML = '';
+    document.getElementById('matchList').innerHTML = '';
+    return;
+  }
+
+  const scored = refs.map(r => ({ ...r, sim: cosineSim(emb, r.embedding) }))
+                      .sort((a,b) => b.sim - a.sim);
+
+  // Aggregate best score per part number (correct views only) for the headline
+  const byPart = {};
+  scored.forEach(r => {
+    if(!byPart[r.partNo] || r.sim > byPart[r.partNo].sim) byPart[r.partNo] = r;
+  });
+  const rankedParts = Object.values(byPart).sort((a,b) => b.sim - a.sim);
+  const best = rankedParts[0];
+
+  const pct = Math.round(best.sim * 100);
+  document.getElementById('resultPart').textContent = best.partNo;
+  document.getElementById('resultConf').textContent = `Best match confidence: ${pct}%`;
+
+  let badgeHTML = '';
+  if(best.sim >= 0.85 && best.viewLabel !== 'wrong'){
+    badgeHTML = `<span class="badge good">Match — looks correct</span>`;
+  } else if(best.sim >= 0.85 && best.viewLabel === 'wrong'){
+    badgeHTML = `<span class="badge bad">Matches known REJECT / wrong-orientation example</span>`;
+  } else if(best.sim >= 0.65){
+    badgeHTML = `<span class="badge warn">Possible match — low confidence, review manually</span>`;
+  } else {
+    badgeHTML = `<span class="badge bad">No confident match — check part / orientation / lighting</span>`;
+  }
+  document.getElementById('resultBadge').innerHTML = badgeHTML;
+
+  const top5 = scored.slice(0, 5);
+  document.getElementById('matchList').innerHTML =
+    '<div style="font-size:12px;color:var(--text-dim);margin-bottom:6px;">Closest stored references</div>' +
+    top5.map(r => `
+      <div class="match-row">
+        <img src="${r.image}">
+        <div style="flex:1;">
+          <div class="mn">${r.partNo} <span style="color:var(--text-dim);">· ${r.viewLabel}</span></div>
+          <div class="bar-track"><div class="bar-fill" style="width:${Math.round(r.sim*100)}%;"></div></div>
+        </div>
+        <div class="mp">${Math.round(r.sim*100)}%</div>
+      </div>
+    `).join('');
+}
+
+// ---------- Manage / Add reference flow ----------
+const addVideo = document.getElementById('addVideo');
+const pendingWrap = document.getElementById('pendingWrap');
+const pendingImg = document.getElementById('pendingImg');
+let pendingDataURL = null;
+
+document.getElementById('btnSnapAdd').addEventListener('click', async () => {
+  const canvas = canvasFromVideo(addVideo);
+  pendingDataURL = canvas.toDataURL('image/jpeg', 0.85);
+  pendingImg.src = pendingDataURL;
+  pendingWrap.style.display = 'block';
+});
+
+document.getElementById('btnUpload').addEventListener('click', () => {
+  document.getElementById('fileInput').click();
+});
+
+document.getElementById('fileInput').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if(!file) return;
+  const raw = await fileToDataURL(file);
+  pendingDataURL = await resizeDataURL(raw);
+  pendingImg.src = pendingDataURL;
+  pendingWrap.style.display = 'block';
+  e.target.value = '';
+});
+
+document.getElementById('btnCancelRef').addEventListener('click', () => {
+  pendingWrap.style.display = 'none';
+  pendingDataURL = null;
+  document.getElementById('partNoInput').value = '';
+});
+
+document.getElementById('btnSaveRef').addEventListener('click', async () => {
+  const partNo = document.getElementById('partNoInput').value.trim();
+  const viewLabel = document.getElementById('viewLabelInput').value;
+  if(!partNo){ toast('Enter a part number first'); return; }
+  if(!pendingDataURL){ toast('No image captured'); return; }
+
+  const btn = document.getElementById('btnSaveRef');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try{
+    const img = await dataURLToImg(pendingDataURL);
+    const embedding = await embedImage(img);
+    await dbAdd({ partNo, viewLabel, image: pendingDataURL, embedding });
+    toast(`Saved reference for ${partNo}`);
+    pendingWrap.style.display = 'none';
+    pendingDataURL = null;
+    document.getElementById('partNoInput').value = '';
+    await refreshRefList();
+  } catch(err){
+    console.error(err);
+    toast('Failed to save: ' + err.message);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Save reference';
+  }
+});
+
+async function refreshRefList(){
+  const refs = await dbAll();
+  document.getElementById('refCount').textContent = refs.length;
+  const wrap = document.getElementById('refListWrap');
+  if(refs.length === 0){
+    wrap.innerHTML = '<div class="empty">No references yet. Add at least 2–3 photos per part above.</div>';
+    return;
+  }
+  const grouped = {};
+  refs.forEach(r => { (grouped[r.partNo] ||= []).push(r); });
+
+  wrap.innerHTML = Object.keys(grouped).sort().map(partNo => `
+    <details class="ref-group">
+      <summary>${partNo} <span class="cnt">${grouped[partNo].length} photo${grouped[partNo].length>1?'s':''}</span></summary>
+      <div class="ref-thumbs">
+        ${grouped[partNo].map(r => `
+          <div class="thumb">
+            <img src="${r.image}">
+            <div class="lbl">${r.viewLabel}</div>
+            <button class="del" data-id="${r.id}" title="Delete">&times;</button>
+          </div>
+        `).join('')}
+      </div>
+    </details>
+  `).join('');
+
+  wrap.querySelectorAll('.del').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await dbDelete(Number(btn.dataset.id));
+      await refreshRefList();
+    });
+  });
+}
+
+// ---------- Export / Import ----------
+document.getElementById('btnExport').addEventListener('click', async () => {
+  const refs = await dbAll();
+  const blob = new Blob([JSON.stringify(refs)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `part-verifier-library-${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+document.getElementById('btnImport').addEventListener('click', () => {
+  document.getElementById('importFile').click();
+});
+
+document.getElementById('importFile').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if(!file) return;
+  try{
+    const text = await file.text();
+    const items = JSON.parse(text);
+    if(!Array.isArray(items)) throw new Error('Invalid file format');
+    await dbAddBulk(items);
+    toast(`Imported ${items.length} reference photo(s)`);
+    await refreshRefList();
+  } catch(err){
+    console.error(err);
+    toast('Import failed: ' + err.message);
+  }
+  e.target.value = '';
+});
+
+// ---------- Boot ----------
+(async function boot(){
+  try{
+    db = await openDB();
+    await refreshRefList();
+
+    const [scan, add] = await Promise.all([
+      startCamera(scanVideo).catch(() => null),
+      startCamera(addVideo).catch(() => null)
+    ]);
+    scanStream = scan; addStream = add;
+    if(!scan && !add){
+      setStatus('Camera access denied — allow camera permission and reload', 'bad');
+    }
+
+    setStatus('Loading vision model (first time only, ~90 MB)…', 'loading');
+    extractor = await pipeline('image-feature-extraction', 'Xenova/clip-vit-base-patch32');
+    setStatus('Model ready', 'ready');
+    btnCapture.disabled = false;
+  } catch(err){
+    console.error(err);
+    setStatus('Setup error: ' + err.message, 'bad');
+  }
+})();
+</script>
+</body>
+</html>
