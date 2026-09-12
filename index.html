@@ -149,7 +149,10 @@
   .toast.show{ opacity:1; }
 </style>
 </head>
-<script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@3.7.1/lib/msal-browser.min.js"></script>
+<script type="text/javascript" src="https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js"></script>
+<script type="text/javascript">
+  if(typeof msal === 'undefined') document.write(unescape("%3Cscript src='https://alcdn.msftauth.net/browser/2.38.3/js/msal-browser.min.js' type='text/javascript' %3E%3C/script%3E"));
+</script>
 <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
 <body>
 
@@ -395,6 +398,10 @@ function initMsal(){
 async function handleAdminSignIn(){
   if(!isAdminConfigured()){
     toast('Admin sign-in isn\'t set up yet — see README for the Azure setup steps.');
+    return;
+  }
+  if(!window.msal || !msalInstance){
+    toast('Sign-in library failed to load — check your internet connection and reload the page.');
     return;
   }
   const btn = document.getElementById('btnAdminSignIn');
