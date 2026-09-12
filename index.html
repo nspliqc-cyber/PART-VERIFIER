@@ -267,6 +267,9 @@
         <button class="btn-secondary" id="btnExport">Export photos only (.json)</button>
         <button class="btn-secondary" id="btnImport">Import photos only (.json)</button>
       </div>
+      <div class="btn-row">
+        <button class="btn-danger" id="btnClearAllRefs">Clear all reference photos</button>
+      </div>
       <input type="file" id="importFile" accept="application/json">
     </div>
 
@@ -277,6 +280,13 @@
         <div class="body">
           <p>Open the STEP/STL file in <code>FreeCAD</code> (free) or <code>Blender</code> (free). Rotate to the iso/front/side/top view you care about and export a screenshot or render as a PNG.</p>
           <p>Upload those renders here the same way as a camera photo, labeled with the correct part number and view. They work as reference images the same as real photos — CLIP matching compares overall shape and features, not photo vs. render pixel-for-pixel.</p>
+        </div>
+      </details>
+      <details class="help">
+        <summary>Why did I see an impossible confidence like 6913%?</summary>
+        <div class="body">
+          <p>That was a bug in an earlier version — the vision model's built-in normalization option wasn't reliably applying, which could produce oversized, inconsistent numbers instead of a true 0–100% confidence. It's fixed now: the app normalizes every photo's fingerprint itself before comparing.</p>
+          <p><strong>Important:</strong> any reference photos saved before this fix have old, incorrectly-scaled fingerprints and will give wrong results when compared against newly scanned photos. Use <strong>Clear all reference photos</strong> below, then re-add them — this recomputes everything correctly. Drawings you attached are unaffected and don't need re-uploading.</p>
         </div>
       </details>
       <details class="help">
@@ -480,13 +490,39 @@ async function embedImage(dataURLOrImg){
   // The model expects a URL/data-URL string or a RawImage — not a raw <img> element.
   const input = typeof dataURLOrImg === 'string' ? dataURLOrImg : dataURLOrImg.src;
   const out = await extractor(input, { pooling: 'mean', normalize: true });
-  return Array.from(out.data);
+
+  let vec = Array.from(out.data);
+
+  // Safety net: if the pipeline returned multiple stacked vectors (e.g. per-patch
+  // tokens, dims like [1, seqLen, hidden]) instead of one pooled vector, mean-pool
+  // them ourselves so we always end up with a single fixed-length vector.
+  if(out.dims && out.dims.length === 3){
+    const seqLen = out.dims[1], hidden = out.dims[2];
+    const pooled = new Array(hidden).fill(0);
+    for(let s=0; s<seqLen; s++){
+      for(let h=0; h<hidden; h++) pooled[h] += out.data[s*hidden + h];
+    }
+    for(let h=0; h<hidden; h++) pooled[h] /= seqLen;
+    vec = pooled;
+  }
+
+  // Always L2-normalize ourselves — never rely on the pipeline's `normalize` flag,
+  // since that's what silently failed and produced impossible >100% similarity scores.
+  let norm = 0;
+  for(let i=0;i<vec.length;i++) norm += vec[i]*vec[i];
+  norm = Math.sqrt(norm) || 1;
+  for(let i=0;i<vec.length;i++) vec[i] /= norm;
+
+  return vec;
 }
 
 function cosineSim(a, b){
+  const len = Math.min(a.length, b.length);
   let dot = 0;
-  for(let i=0;i<a.length;i++) dot += a[i]*b[i];
-  return dot; // already normalized
+  for(let i=0;i<len;i++) dot += a[i]*b[i];
+  // Clamp defensively — cosine similarity between two unit vectors can never
+  // legitimately fall outside [-1, 1]; anything beyond that means bad input.
+  return Math.max(-1, Math.min(1, dot));
 }
 
 function dataURLToImg(dataURL){
@@ -951,6 +987,13 @@ async function refreshRefList(){
 }
 
 // ---------- Export / Import ----------
+document.getElementById('btnClearAllRefs').addEventListener('click', async () => {
+  if(!confirm('Delete ALL stored reference photos? This cannot be undone. (Drawings are not affected.)')) return;
+  await dbClearAll();
+  toast('All reference photos cleared');
+  await refreshRefList();
+});
+
 document.getElementById('btnExport').addEventListener('click', async () => {
   const refs = await dbAll();
   const blob = new Blob([JSON.stringify(refs)], { type: 'application/json' });
