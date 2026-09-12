@@ -27,7 +27,6 @@
   header{
     padding: 18px 16px 14px;
     border-bottom: 1px solid var(--line);
-    position: sticky; top:0; background: var(--bg); z-index: 5;
   }
   header .brand{ display:flex; align-items:baseline; gap:10px; }
   header .brand .mark{
@@ -40,6 +39,7 @@
   .status-bar{
     font-family: var(--mono); font-size: 12px; color: var(--text-dim);
     padding: 8px 16px; border-bottom: 1px solid var(--line); display:flex; align-items:center; gap:8px;
+    position: sticky; top: 0; background: var(--bg); z-index: 6;
   }
   .dot{ width:7px; height:7px; border-radius:50%; background: var(--text-dim); flex-shrink:0; }
   .dot.ready{ background: var(--good); }
@@ -189,6 +189,10 @@
         <div id="resultBadge"></div>
       </div>
       <div class="match-list" id="matchList"></div>
+      <div id="drawingSection" style="display:none;margin-top:14px;border-top:1px solid var(--line);padding-top:12px;">
+        <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px;">Drawing for this part</div>
+        <div id="drawingViewer"></div>
+      </div>
     </div>
   </div>
 
@@ -225,11 +229,43 @@
     </div>
 
     <div class="card">
+      <h2>Attach drawing to a part</h2>
+      <p style="font-size:12px;color:var(--text-dim);margin:0 0 10px;">Upload the actual drawing (image, PDF, or STL) for a part number. When the scanner recognizes that part, this drawing opens automatically.</p>
+      <label>Part number</label>
+      <input type="text" id="drawingPartNoInput" placeholder="e.g. BB-4402-A">
+      <label>Revision (optional — leave blank if there's only one)</label>
+      <input type="text" id="drawingRevisionInput" placeholder="e.g. REV0, REV1">
+      <div class="btn-row">
+        <button class="btn-secondary" id="btnChooseDrawing">Choose file (image, PDF, or STL)</button>
+      </div>
+      <input type="file" id="drawingFileInput" accept="image/*,application/pdf,.stl,.step,.stp">
+      <div id="drawingPendingName" style="font-family:var(--mono);font-size:12px;color:var(--text-dim);margin-top:8px;"></div>
+      <div class="btn-row">
+        <button class="btn-primary" id="btnSaveDrawing">Save drawing</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Shared library (auto-syncs to every phone)</h2>
+      <p style="font-size:12px;color:var(--text-dim);margin:0 0 10px;">Build references and drawings here, then export and upload the single file to your GitHub repo. Every phone that opens the app link will automatically load it — nobody else needs to import anything manually.</p>
+      <div class="btn-row">
+        <button class="btn-secondary" id="btnExportShared">Export shared library (.json)</button>
+        <button class="btn-secondary" id="btnSyncShared">Refresh from GitHub now</button>
+      </div>
+      <div id="syncStatus" style="font-family:var(--mono);font-size:12px;color:var(--text-dim);margin-top:8px;"></div>
+    </div>
+
+    <div class="card">
+      <h2>Drawings on file (<span id="drawingCount">0</span>)</h2>
+      <div id="drawingListWrap"><div class="empty">No drawings attached yet.</div></div>
+    </div>
+
+    <div class="card">
       <h2>Stored references (<span id="refCount">0</span>)</h2>
       <div id="refListWrap"><div class="empty">No references yet. Add at least 2–3 photos per part above.</div></div>
       <div class="btn-row">
-        <button class="btn-secondary" id="btnExport">Export library (.json)</button>
-        <button class="btn-secondary" id="btnImport">Import library (.json)</button>
+        <button class="btn-secondary" id="btnExport">Export photos only (.json)</button>
+        <button class="btn-secondary" id="btnImport">Import photos only (.json)</button>
       </div>
       <input type="file" id="importFile" accept="application/json">
     </div>
@@ -241,6 +277,35 @@
         <div class="body">
           <p>Open the STEP/STL file in <code>FreeCAD</code> (free) or <code>Blender</code> (free). Rotate to the iso/front/side/top view you care about and export a screenshot or render as a PNG.</p>
           <p>Upload those renders here the same way as a camera photo, labeled with the correct part number and view. They work as reference images the same as real photos — CLIP matching compares overall shape and features, not photo vs. render pixel-for-pixel.</p>
+        </div>
+      </details>
+      <details class="help">
+        <summary>Handling multiple revisions of the same part</summary>
+        <div class="body">
+          <p>When attaching a drawing, fill in the Revision field (e.g. <code>REV0</code>, <code>REV1</code>). You can attach several revisions for the same part number. If a scan matches a part with more than one revision on file, the technician sees a dropdown to pick which one to open — nothing opens automatically without their choice in that case.</p>
+        </div>
+      </details>
+      <details class="help">
+        <summary>Important: drawing sheets vs. reference photos</summary>
+        <div class="body">
+          <p>The <strong>Attach drawing</strong> section is for the file the technician reads (a dimensioned drawing sheet, PDF, or STL) — it's only for display, never used for camera matching.</p>
+          <p>Camera identification only works against the photos in <strong>Add reference photo</strong> above. A dimensioned drawing sheet full of lines and text won't match well against a real photo. If your drawing includes a small 3D/isometric picture of the part (many title-block drawings do), crop just that image and add it as a reference photo — or better, use real photos of the physical part for reliable matching.</p>
+        </div>
+      </details>
+      <details class="help">
+        <summary>Setting up automatic sync so nobody has to import manually</summary>
+        <div class="body">
+          <p>Build up your reference photos and drawings on one device (this is your "admin" device). When ready, tap <strong>Export shared library (.json)</strong> above — this downloads one file containing everything.</p>
+          <p>In your GitHub repo, create a folder called <code>data</code> the first time: click <strong>Add file → Create new file</strong>, type <code>data/library.json</code> as the filename, paste in any placeholder text, and commit. This creates the folder.</p>
+          <p>From then on, to publish updates: open the <code>data</code> folder in your repo, click into <code>library.json</code>, click the pencil (edit) icon, delete the old content, paste in the newly exported file's content, and commit.</p>
+          <p>That's it — every phone that opens your GitHub Pages link will automatically fetch this file in the background and load all the references and drawings. Nobody scanning parts needs to download or import anything themselves. If someone already has the app open, they can tap <strong>Refresh from GitHub now</strong> to pull the latest without reopening the page.</p>
+        </div>
+      </details>
+      <details class="help">
+        <summary>Auto-opening the drawing when a part is recognized</summary>
+        <div class="body">
+          <p>Use "Attach drawing to a part" to upload the actual drawing file per part number (separate from the training photos above). Images and PDFs preview automatically; STL files render as a rotatable 3D model. When the Scan tab recognizes that part with reasonable confidence, this drawing appears automatically under the result — no extra tap needed.</p>
+          <p>Raw STEP/STP files can't be previewed in a browser without conversion — for those, the app shows a download link instead of an inline view. If you want an automatic in-app preview, export a PDF or PNG of the drawing from your CAD software and attach that instead (or attach an STL for an interactive 3D view).</p>
         </div>
       </details>
       <details class="help">
@@ -274,19 +339,74 @@ env.allowLocalModels = false;
 
 const DB_NAME = 'part-verifier-db';
 const STORE = 'refs';
+const DRAWINGS_STORE = 'drawings';
 let db;
 
 function openDB(){
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 1);
+    const req = indexedDB.open(DB_NAME, 3);
     req.onupgradeneeded = () => {
       const d = req.result;
       if(!d.objectStoreNames.contains(STORE)){
         d.createObjectStore(STORE, { keyPath: 'id', autoIncrement: true });
       }
+      if(d.objectStoreNames.contains(DRAWINGS_STORE)){
+        // Older schema keyed by partNo only (one drawing per part) — recreate to support multiple revisions.
+        d.deleteObjectStore(DRAWINGS_STORE);
+      }
+      const drawingsStore = d.createObjectStore(DRAWINGS_STORE, { keyPath: 'id', autoIncrement: true });
+      drawingsStore.createIndex('partNo', 'partNo', { unique: false });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
+  });
+}
+
+function dbGetDrawingsForPart(partNo){
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(DRAWINGS_STORE, 'readonly');
+    const idx = tx.objectStore(DRAWINGS_STORE).index('partNo');
+    const req = idx.getAll(partNo);
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function dbSetDrawing(record){
+  // Upsert by partNo+revision+fileName: replace any existing entry with the same identity, then add fresh.
+  const existing = await dbGetDrawingsForPart(record.partNo);
+  const match = existing.find(e => (e.revision||'') === (record.revision||'') && e.fileName === record.fileName);
+  if(match){
+    await dbDeleteDrawing(match.id);
+  }
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(DRAWINGS_STORE, 'readwrite');
+    const req = tx.objectStore(DRAWINGS_STORE).add(record);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function dbDeleteDrawing(id){
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(DRAWINGS_STORE, 'readwrite');
+    const req = tx.objectStore(DRAWINGS_STORE).delete(id);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function dbAllDrawings(){
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(DRAWINGS_STORE, 'readonly');
+    const store = tx.objectStore(DRAWINGS_STORE);
+    const items = [];
+    store.openCursor().onsuccess = (e) => {
+      const cursor = e.target.result;
+      if(cursor){ items.push(cursor.value); cursor.continue(); }
+      else resolve(items);
+    };
+    tx.onerror = () => reject(tx.error);
   });
 }
 
@@ -356,8 +476,10 @@ function toast(msg){
   setTimeout(() => t.classList.remove('show'), 2200);
 }
 
-async function embedImage(imgEl){
-  const out = await extractor(imgEl, { pooling: 'mean', normalize: true });
+async function embedImage(dataURLOrImg){
+  // The model expects a URL/data-URL string or a RawImage — not a raw <img> element.
+  const input = typeof dataURLOrImg === 'string' ? dataURLOrImg : dataURLOrImg.src;
+  const out = await extractor(input, { pooling: 'mean', normalize: true });
   return Array.from(out.data);
 }
 
@@ -392,6 +514,20 @@ function fileToDataURL(file){
     r.onload = () => resolve(r.result);
     r.readAsDataURL(file);
   });
+}
+
+function blobToBase64(blob){
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result.split(',')[1]);
+    r.onerror = reject;
+    r.readAsDataURL(blob);
+  });
+}
+
+async function base64ToBlob(base64, mimeType){
+  const res = await fetch(`data:${mimeType || 'application/octet-stream'};base64,${base64}`);
+  return res.blob();
 }
 
 async function resizeDataURL(dataURL, maxDim = 448){
@@ -431,13 +567,13 @@ const scanVideo = document.getElementById('scanVideo');
 const btnCapture = document.getElementById('btnCapture');
 
 btnCapture.addEventListener('click', async () => {
+  if(!extractor){ toast('Model is still loading — wait for the green "Model ready" status, then try again'); return; }
   btnCapture.disabled = true;
   btnCapture.textContent = 'Checking…';
   try{
     const canvas = canvasFromVideo(scanVideo);
     const dataURL = canvas.toDataURL('image/jpeg', 0.85);
-    const img = await dataURLToImg(dataURL);
-    const emb = await embedImage(img);
+    const emb = await embedImage(dataURL);
     const refs = await dbAll();
     showResult(dataURL, emb, refs);
   } catch(err){
@@ -489,6 +625,12 @@ function showResult(dataURL, emb, refs){
   }
   document.getElementById('resultBadge').innerHTML = badgeHTML;
 
+  if(best.sim >= 0.65){
+    renderDrawingForPart(best.partNo);
+  } else {
+    document.getElementById('drawingSection').style.display = 'none';
+  }
+
   const top5 = scored.slice(0, 5);
   document.getElementById('matchList').innerHTML =
     '<div style="font-size:12px;color:var(--text-dim);margin-bottom:6px;">Closest stored references</div>' +
@@ -502,6 +644,217 @@ function showResult(dataURL, emb, refs){
         <div class="mp">${Math.round(r.sim*100)}%</div>
       </div>
     `).join('');
+}
+
+// ---------- Manage / Attach drawing flow ----------
+let pendingDrawingFile = null;
+
+document.getElementById('btnChooseDrawing').addEventListener('click', () => {
+  document.getElementById('drawingFileInput').click();
+});
+
+document.getElementById('drawingFileInput').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if(!file) return;
+  pendingDrawingFile = file;
+  document.getElementById('drawingPendingName').textContent = `Selected: ${file.name} (${Math.round(file.size/1024)} KB)`;
+  e.target.value = '';
+});
+
+document.getElementById('btnSaveDrawing').addEventListener('click', async () => {
+  const partNo = document.getElementById('drawingPartNoInput').value.trim();
+  const revision = document.getElementById('drawingRevisionInput').value.trim();
+  if(!partNo){ toast('Enter a part number first'); return; }
+  if(!pendingDrawingFile){ toast('Choose a drawing file first'); return; }
+
+  const btn = document.getElementById('btnSaveDrawing');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try{
+    await dbSetDrawing({
+      partNo,
+      revision,
+      fileName: pendingDrawingFile.name,
+      mimeType: pendingDrawingFile.type || '',
+      blob: pendingDrawingFile
+    });
+    toast(`Saved drawing for ${partNo}${revision ? ' (' + revision + ')' : ''}`);
+    pendingDrawingFile = null;
+    document.getElementById('drawingPendingName').textContent = '';
+    document.getElementById('drawingPartNoInput').value = '';
+    document.getElementById('drawingRevisionInput').value = '';
+    await refreshDrawingList();
+  } catch(err){
+    console.error(err);
+    toast('Failed to save drawing: ' + err.message);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Save drawing';
+  }
+});
+
+async function refreshDrawingList(){
+  const drawings = await dbAllDrawings();
+  document.getElementById('drawingCount').textContent = drawings.length;
+  const wrap = document.getElementById('drawingListWrap');
+  if(drawings.length === 0){
+    wrap.innerHTML = '<div class="empty">No drawings attached yet.</div>';
+    return;
+  }
+  const grouped = {};
+  drawings.forEach(d => { (grouped[d.partNo] ||= []).push(d); });
+
+  wrap.innerHTML = Object.keys(grouped).sort().map(partNo => `
+    <details class="ref-group">
+      <summary>${partNo} <span class="cnt">${grouped[partNo].length} file${grouped[partNo].length>1?'s':''}</span></summary>
+      <div style="padding: 4px 12px 10px;">
+        ${grouped[partNo].map(d => `
+          <div class="match-row" style="border-bottom:1px solid var(--line);padding:8px 0;">
+            <div style="flex:1;">
+              <div class="mn">${d.revision ? d.revision : 'No revision label'}</div>
+              <div class="mp">${d.fileName}</div>
+            </div>
+            <button class="btn-secondary" style="width:auto;padding:8px 12px;" data-view="${d.id}">View</button>
+            <button class="del" data-del-drawing="${d.id}" title="Delete" style="position:static;">&times;</button>
+          </div>
+        `).join('')}
+      </div>
+    </details>
+  `).join('');
+
+  wrap.querySelectorAll('[data-view]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const all = await dbAllDrawings();
+      const d = all.find(x => x.id === Number(btn.dataset.view));
+      if(d) window.open(URL.createObjectURL(d.blob), '_blank');
+    });
+  });
+  wrap.querySelectorAll('[data-del-drawing]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      await dbDeleteDrawing(Number(btn.dataset.delDrawing));
+      await refreshDrawingList();
+    });
+  });
+}
+
+// ---------- Auto-open drawing on match ----------
+let threeModulesPromise = null;
+function loadThreeModules(){
+  if(!threeModulesPromise){
+    threeModulesPromise = Promise.all([
+      import('https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js'),
+      import('https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/STLLoader.js'),
+      import('https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/controls/OrbitControls.js')
+    ]);
+  }
+  return threeModulesPromise;
+}
+
+async function renderSTLViewer(container, blobURL){
+  container.innerHTML = '<div class="empty">Loading 3D viewer…</div>';
+  try{
+    const [THREE, { STLLoader }, { OrbitControls }] = await loadThreeModules();
+    container.innerHTML = '';
+    const width = container.clientWidth || 300;
+    const height = 320;
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(45, width/height, 0.1, 5000);
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setSize(width, height);
+    renderer.setPixelRatio(window.devicePixelRatio || 1);
+    container.appendChild(renderer.domElement);
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    dirLight.position.set(1, 1, 1);
+    scene.add(dirLight);
+
+    const loader = new STLLoader();
+    const geometry = await loader.loadAsync(blobURL);
+    geometry.center();
+    geometry.computeBoundingSphere();
+    const radius = geometry.boundingSphere ? geometry.boundingSphere.radius : 50;
+
+    const material = new THREE.MeshStandardMaterial({ color: 0xffb454, metalness: 0.2, roughness: 0.6 });
+    const mesh = new THREE.Mesh(geometry, material);
+    scene.add(mesh);
+
+    camera.position.set(radius*1.8, radius*1.4, radius*1.8);
+    camera.lookAt(0,0,0);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+
+    function animate(){
+      requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    animate();
+  } catch(err){
+    console.error(err);
+    container.innerHTML = `<div class="empty">Could not render 3D preview (${err.message}). Use the download link instead.</div>`;
+  }
+}
+
+function renderOneDrawing(viewer, drawing){
+  const url = URL.createObjectURL(drawing.blob);
+  const name = (drawing.fileName || '').toLowerCase();
+  const mime = drawing.mimeType || '';
+
+  if(mime.startsWith('image/')){
+    viewer.innerHTML = `<img src="${url}" style="width:100%;border-radius:8px;">`;
+  } else if(mime === 'application/pdf' || name.endsWith('.pdf')){
+    viewer.innerHTML = `<iframe src="${url}" style="width:100%;height:420px;border:1px solid var(--line);border-radius:8px;background:#fff;"></iframe>`;
+  } else if(name.endsWith('.stl')){
+    const holder = document.createElement('div');
+    viewer.innerHTML = '';
+    viewer.appendChild(holder);
+    renderSTLViewer(holder, url);
+  } else {
+    viewer.innerHTML = `
+      <div class="empty" style="padding:16px;">
+        Preview not supported for this file type (${drawing.fileName}).<br>
+        <a href="${url}" download="${drawing.fileName}">Download drawing</a>
+      </div>`;
+  }
+}
+
+async function renderDrawingForPart(partNo){
+  const section = document.getElementById('drawingSection');
+  const viewer = document.getElementById('drawingViewer');
+  const drawings = await dbGetDrawingsForPart(partNo);
+
+  if(drawings.length === 0){
+    section.style.display = 'none';
+    viewer.innerHTML = '';
+    return;
+  }
+
+  section.style.display = 'block';
+
+  if(drawings.length === 1){
+    viewer.innerHTML = '';
+    renderOneDrawing(viewer, drawings[0]);
+    return;
+  }
+
+  // Multiple revisions on file — let the technician pick which one to open.
+  const sorted = [...drawings].sort((a,b) => (b.revision||'').localeCompare(a.revision||''));
+  const selectId = 'revSelect_' + Math.random().toString(36).slice(2,8);
+  viewer.innerHTML = `
+    <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px;">
+      ${drawings.length} revisions found for this part — select one:
+    </div>
+    <select id="${selectId}" style="margin-bottom:12px;">
+      ${sorted.map((d,i) => `<option value="${i}">${d.revision ? d.revision : 'No revision label'} — ${d.fileName}</option>`).join('')}
+    </select>
+    <div id="${selectId}_viewer"></div>
+  `;
+  const sub = document.getElementById(selectId + '_viewer');
+  renderOneDrawing(sub, sorted[0]);
+  document.getElementById(selectId).addEventListener('change', (e) => {
+    renderOneDrawing(sub, sorted[Number(e.target.value)]);
+  });
 }
 
 // ---------- Manage / Add reference flow ----------
@@ -538,6 +891,7 @@ document.getElementById('btnCancelRef').addEventListener('click', () => {
 });
 
 document.getElementById('btnSaveRef').addEventListener('click', async () => {
+  if(!extractor){ toast('Model is still loading — wait for the green "Model ready" status, then try again'); return; }
   const partNo = document.getElementById('partNoInput').value.trim();
   const viewLabel = document.getElementById('viewLabelInput').value;
   if(!partNo){ toast('Enter a part number first'); return; }
@@ -546,8 +900,7 @@ document.getElementById('btnSaveRef').addEventListener('click', async () => {
   const btn = document.getElementById('btnSaveRef');
   btn.disabled = true; btn.textContent = 'Saving…';
   try{
-    const img = await dataURLToImg(pendingDataURL);
-    const embedding = await embedImage(img);
+    const embedding = await embedImage(pendingDataURL);
     await dbAdd({ partNo, viewLabel, image: pendingDataURL, embedding });
     toast(`Saved reference for ${partNo}`);
     pendingWrap.style.display = 'none';
@@ -630,11 +983,97 @@ document.getElementById('importFile').addEventListener('change', async (e) => {
   e.target.value = '';
 });
 
-// ---------- Boot ----------
+// ---------- Shared library export (includes drawings) + auto-sync from GitHub ----------
+document.getElementById('btnExportShared').addEventListener('click', async () => {
+  const btn = document.getElementById('btnExportShared');
+  btn.disabled = true; btn.textContent = 'Preparing…';
+  try{
+    const refs = await dbAll();
+    const drawings = await dbAllDrawings();
+    const drawingsSerialized = [];
+    for(const d of drawings){
+      drawingsSerialized.push({
+        partNo: d.partNo,
+        revision: d.revision || '',
+        fileName: d.fileName,
+        mimeType: d.mimeType,
+        base64: await blobToBase64(d.blob)
+      });
+    }
+    const payload = {
+      format: 'part-verifier-shared-v1',
+      exportedAt: new Date().toISOString(),
+      refs,
+      drawings: drawingsSerialized
+    };
+    const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'library.json';
+    a.click();
+    URL.revokeObjectURL(url);
+    toast('Exported — upload this as data/library.json in your GitHub repo');
+  } catch(err){
+    console.error(err);
+    toast('Export failed: ' + err.message);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Export shared library (.json)';
+  }
+});
+
+async function syncSharedLibrary(showToastIfEmpty){
+  const statusEl = document.getElementById('syncStatus');
+  try{
+    const res = await fetch('./data/library.json', { cache: 'no-cache' });
+    if(!res.ok){
+      if(showToastIfEmpty){ toast('No shared library found yet at data/library.json'); }
+      if(statusEl) statusEl.textContent = 'No shared library published yet.';
+      return;
+    }
+    const payload = await res.json();
+    const localRefs = await dbAll();
+    const localSigs = new Set(localRefs.map(r => `${r.partNo}::${r.viewLabel}::${r.image}`));
+    let addedRefs = 0;
+    for(const r of (payload.refs || [])){
+      const sig = `${r.partNo}::${r.viewLabel}::${r.image}`;
+      if(!localSigs.has(sig)){
+        await dbAdd({ partNo: r.partNo, viewLabel: r.viewLabel, image: r.image, embedding: r.embedding });
+        localSigs.add(sig);
+        addedRefs++;
+      }
+    }
+    let syncedDrawings = 0;
+    for(const d of (payload.drawings || [])){
+      const existing = await dbGetDrawingsForPart(d.partNo);
+      const already = existing.some(e => (e.revision||'') === (d.revision||'') && e.fileName === d.fileName);
+      if(!already){
+        const blob = await base64ToBlob(d.base64, d.mimeType);
+        await dbSetDrawing({ partNo: d.partNo, revision: d.revision || '', fileName: d.fileName, mimeType: d.mimeType, blob });
+        syncedDrawings++;
+      }
+    }
+    await refreshRefList();
+    await refreshDrawingList();
+    const msg = `Synced: ${addedRefs} new photo(s), ${syncedDrawings} drawing(s) from shared library`;
+    if(statusEl) statusEl.textContent = `Last synced ${new Date().toLocaleTimeString()} — ${syncedDrawings} drawing(s), ${localSigs.size} total reference photo(s).`;
+    if(addedRefs || syncedDrawings || showToastIfEmpty) toast(msg);
+  } catch(err){
+    console.warn('Shared library sync skipped:', err.message);
+    if(showToastIfEmpty) toast('Sync failed: ' + err.message);
+    if(statusEl) statusEl.textContent = 'Sync failed — see console for details.';
+  }
+}
+
+document.getElementById('btnSyncShared').addEventListener('click', () => syncSharedLibrary(true));
+
+
 (async function boot(){
   try{
     db = await openDB();
     await refreshRefList();
+    await refreshDrawingList();
+    syncSharedLibrary(false); // fire and forget — updates lists/toast when done, doesn't block camera/model setup
 
     const [scan, add] = await Promise.all([
       startCamera(scanVideo).catch(() => null),
