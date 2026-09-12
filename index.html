@@ -149,6 +149,8 @@
   .toast.show{ opacity:1; }
 </style>
 </head>
+<script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@3.7.1/lib/msal-browser.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
 <body>
 
 <header>
@@ -164,7 +166,11 @@
 <main>
   <div class="tabs">
     <div class="tab active" data-tab="scan">Scan</div>
-    <div class="tab" data-tab="manage">References</div>
+    <div class="tab" data-tab="manage" id="manageTab" style="display:none;">References</div>
+  </div>
+
+  <div id="adminBar" style="display:flex;justify-content:flex-end;margin:-8px 0 14px;">
+    <button class="btn-secondary" id="btnAdminSignIn" style="width:auto;padding:8px 14px;font-size:12px;">Admin sign-in</button>
   </div>
 
   <!-- SCAN VIEW -->
@@ -276,6 +282,13 @@
     <div class="card">
       <h2>Guide</h2>
       <details class="help">
+        <summary>Setting up admin sign-in (Microsoft) — read this first</summary>
+        <div class="body">
+          <p>This References/admin screen is hidden from everyone until they sign in with an authorized Microsoft work account. Full setup steps (registering the app in Azure, getting a Client ID, and listing admin emails) are in the README file included with this app.</p>
+          <p>Until that's configured, tapping "Admin sign-in" will tell you it isn't set up yet — that's expected, not a bug.</p>
+        </div>
+      </details>
+      <details class="help">
         <summary>I only have the 3D drawing, no physical part yet</summary>
         <div class="body">
           <p>Open the STEP/STL file in <code>FreeCAD</code> (free) or <code>Blender</code> (free). Rotate to the iso/front/side/top view you care about and export a screenshot or render as a PNG.</p>
@@ -346,6 +359,69 @@
 import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2';
 
 env.allowLocalModels = false;
+
+// Point pdf.js at its matching worker build.
+if(window.pdfjsLib){
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+}
+
+// ---------- Admin sign-in (Microsoft) ----------
+// Fill these in after registering the app in Azure — see README for steps.
+const MSAL_CONFIG = {
+  auth: {
+    clientId: 'e171fc7e-f57c-4617-87ca-5c03fbb7ad40',
+    authority: 'https://login.microsoftonline.com/a2e7eb9a-5086-4ee3-992a-0a6d18bbc9e3',
+    redirectUri: window.location.origin + window.location.pathname
+  },
+  cache: { cacheLocation: 'sessionStorage' }
+};
+// Only these signed-in Microsoft accounts (lowercase) can unlock the References/admin tab.
+const ADMIN_EMAILS = [
+  'love.goswami@newensystems.com'
+];
+
+let msalInstance = null;
+let currentAccount = null;
+
+function isAdminConfigured(){
+  return MSAL_CONFIG.auth.clientId && !MSAL_CONFIG.auth.clientId.startsWith('PASTE_');
+}
+
+function initMsal(){
+  if(!isAdminConfigured() || !window.msal) return;
+  msalInstance = new msal.PublicClientApplication(MSAL_CONFIG);
+}
+
+async function handleAdminSignIn(){
+  if(!isAdminConfigured()){
+    toast('Admin sign-in isn\'t set up yet — see README for the Azure setup steps.');
+    return;
+  }
+  const btn = document.getElementById('btnAdminSignIn');
+  try{
+    btn.disabled = true; btn.textContent = 'Signing in…';
+    const result = await msalInstance.loginPopup({ scopes: ['User.Read'] });
+    currentAccount = result.account;
+    const email = (currentAccount.username || '').toLowerCase();
+    if(ADMIN_EMAILS.map(e => e.toLowerCase()).includes(email)){
+      document.getElementById('manageTab').style.display = '';
+      btn.textContent = `Signed in: ${email}`;
+      toast('Admin access unlocked');
+    } else {
+      currentAccount = null;
+      toast(`${email} is not an authorized admin account`);
+      btn.textContent = 'Admin sign-in';
+    }
+  } catch(err){
+    console.error(err);
+    toast('Sign-in failed: ' + err.message);
+    btn.textContent = 'Admin sign-in';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+document.getElementById('btnAdminSignIn').addEventListener('click', handleAdminSignIn);
 
 const DB_NAME = 'part-verifier-db';
 const STORE = 'refs';
@@ -672,7 +748,9 @@ function showResult(dataURL, emb, refs){
     '<div style="font-size:12px;color:var(--text-dim);margin-bottom:6px;">Closest stored references</div>' +
     top5.map(r => `
       <div class="match-row">
-        <img src="${r.image}">
+        ${r.image
+          ? `<img src="${r.image}" onerror="this.replaceWith(Object.assign(document.createElement('div'),{style:'width:36px;height:36px;border-radius:6px;flex-shrink:0;background:var(--panel-2);'}))">`
+          : `<div style="width:36px;height:36px;border-radius:6px;flex-shrink:0;background:var(--panel-2);"></div>`}
         <div style="flex:1;">
           <div class="mn">${r.partNo} <span style="color:var(--text-dim);">· ${r.viewLabel}</span></div>
           <div class="bar-track"><div class="bar-fill" style="width:${Math.round(r.sim*100)}%;"></div></div>
@@ -832,15 +910,46 @@ async function renderSTLViewer(container, blobURL){
   }
 }
 
+async function renderPdfViewOnly(container, url){
+  container.innerHTML = '<div class="empty">Loading drawing…</div>';
+  try{
+    if(!window.pdfjsLib) throw new Error('PDF viewer library did not load');
+    const doc = await pdfjsLib.getDocument(url).promise;
+    container.innerHTML = '';
+    for(let pageNum = 1; pageNum <= doc.numPages; pageNum++){
+      const page = await doc.getPage(pageNum);
+      const viewport = page.getViewport({ scale: Math.min(2, (container.clientWidth || 320) / page.getViewport({scale:1}).width) });
+      const canvas = document.createElement('canvas');
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      canvas.style.width = '100%';
+      canvas.style.borderRadius = '8px';
+      canvas.style.marginBottom = '8px';
+      canvas.style.background = '#fff';
+      canvas.oncontextmenu = () => false;
+      canvas.style.userSelect = 'none';
+      canvas.style.webkitUserDrag = 'none';
+      container.appendChild(canvas);
+      await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+    }
+  } catch(err){
+    console.error(err);
+    container.innerHTML = `<div class="empty">Could not display this PDF (${err.message}).</div>`;
+  }
+}
+
 function renderOneDrawing(viewer, drawing){
   const url = URL.createObjectURL(drawing.blob);
   const name = (drawing.fileName || '').toLowerCase();
   const mime = drawing.mimeType || '';
 
   if(mime.startsWith('image/')){
-    viewer.innerHTML = `<img src="${url}" style="width:100%;border-radius:8px;">`;
+    viewer.innerHTML = `<img src="${url}" oncontextmenu="return false" draggable="false" style="width:100%;border-radius:8px;user-select:none;-webkit-user-drag:none;">`;
   } else if(mime === 'application/pdf' || name.endsWith('.pdf')){
-    viewer.innerHTML = `<iframe src="${url}" style="width:100%;height:420px;border:1px solid var(--line);border-radius:8px;background:#fff;"></iframe>`;
+    const holder = document.createElement('div');
+    viewer.innerHTML = '';
+    viewer.appendChild(holder);
+    renderPdfViewOnly(holder, url);
   } else if(name.endsWith('.stl')){
     const holder = document.createElement('div');
     viewer.innerHTML = '';
@@ -849,8 +958,7 @@ function renderOneDrawing(viewer, drawing){
   } else {
     viewer.innerHTML = `
       <div class="empty" style="padding:16px;">
-        Preview not supported for this file type (${drawing.fileName}).<br>
-        <a href="${url}" download="${drawing.fileName}">Download drawing</a>
+        Preview not supported for this file type (${drawing.fileName}). Ask an admin to convert it to PDF, image, or STL.
       </div>`;
   }
 }
@@ -1113,6 +1221,7 @@ document.getElementById('btnSyncShared').addEventListener('click', () => syncSha
 
 (async function boot(){
   try{
+    initMsal();
     db = await openDB();
     await refreshRefList();
     await refreshDrawingList();
